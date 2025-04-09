@@ -4,7 +4,9 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <time.h>
-#include "constants.h"
+
+const int PIPE_WRITE = 1;
+const int PIPE_READ = 0;
 
 int generate_random_number(){
 	return (rand() % 50);
@@ -12,8 +14,11 @@ int generate_random_number(){
 //intenté hacer una abstracción pero anda medio rari
 void readNumberAndWrite(int gameNum,int pipeRead_fd,int pipeWrite_fd, int processNum){
 	read(pipeRead_fd,&gameNum,sizeof(gameNum));
+	
 	printf("recibí el numero %i \n", gameNum, processNum);
-	gameNum+=1;
+	
+	gameNum +=1;
+	
 	write(pipeWrite_fd,&gameNum,sizeof(gameNum));
 }
 int main(int argc, char **argv)
@@ -30,19 +35,21 @@ int main(int argc, char **argv)
   	/* COMPLETAR */
     printf("Se crearán %i procesos, se enviará el caracter %i desde proceso %i \n", n, buffer, start-1);
 	int pipes[n][2];
+	
 	//Armo las pipes
     for(int i=0;i<n;i++){
 		pipe(pipes[i]);
 	}
 	//Mando el numero inicial al pipe del que va a leer el proceso numero "Start -1"
 	write(pipes[start-1][PIPE_WRITE], &buffer, sizeof(buffer));
+	
 	//El proceso Start es el único que puede avisar al padre que termina y ese debe killear todo (revisar, no llegue a esa parte)
-	for(int i=0; i<n;i++){
+	for(int i=0; i<n; i++){
 		if(fork()==0){
 			int gameNum;
-			if(i== start-1){
+			if(i == start-1){
 				int secretNum = 2;//generate_random_number(); <-- comentado por control
-				if (i==n){
+				if (i == n){
 					for(int j=0; j<n;j++){
 						//Cierro todos los write de los pipes 1 a n
 						if(j!=0){
@@ -53,12 +60,15 @@ int main(int argc, char **argv)
 							close(pipes[j][PIPE_READ]);
 						}
 					}
+					
 					//la primera vez que leo no importa si el num es más grande que el secreto
 					readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[0][PIPE_WRITE],i);
+					
 					while (secretNum>gameNum){
-					readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[0][PIPE_WRITE],i);
+						readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[0][PIPE_WRITE],i);
 					}
 					printf("game over! \n");
+					
 					exit(0);
 				}else{
 					for(int j=0; j<n;j++){
@@ -117,8 +127,10 @@ int main(int argc, char **argv)
 		close(pipes[i][PIPE_READ]);
 		close(pipes[i][PIPE_WRITE]);
 	}
+	
 	for (int i = 0; i < n; i++) {
         wait(NULL);
     }
+	
 	return 0;
 }
