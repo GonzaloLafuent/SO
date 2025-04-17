@@ -4,133 +4,151 @@
 #include <unistd.h>
 #include <sys/wait.h>
 #include <time.h>
+#include "constants.h"
 
-const int PIPE_WRITE = 1;
-const int PIPE_READ = 0;
+const int READ = 0;
+const int WRITE = 1;
 
 int generate_random_number(){
 	return (rand() % 50);
 }
-//intenté hacer una abstracción pero anda medio rari
-void readNumberAndWrite(int gameNum,int pipeRead_fd,int pipeWrite_fd, int processNum){
-	read(pipeRead_fd,&gameNum,sizeof(gameNum));
-	
-	printf("recibí el numero %i \n", gameNum, processNum);
-	
-	gameNum +=1;
-	
-	write(pipeWrite_fd,&gameNum,sizeof(gameNum));
+
+void closeAllReadPipesDifferentToK(int n,int pipeDeLectura,int pipes[][2]){
+	for(int i = 0; i < n; i++ ){
+		if(i!=pipeDeLectura){
+			close(pipes[i][READ]);
+		}
+	}
 }
+
+void closeAllWritePipesDifferentToK(int n, int pipeDeEscitura, int pipes[][2]){
+	for(int i = 0; i < n; i++ ){
+		if(i!=pipeDeEscitura){
+			close(pipes[i][WRITE]);
+		}
+	}
+}
+
+int calcularPipeLectura(int numeroDeProceso,int cantidadDeProcesos){
+	if(numeroDeProceso==1) return cantidadDeProcesos - 1;
+	else return numeroDeProceso - 2;
+}
+
+int calcularPipeDeEscritura(int numeroDeProceso,int cantidadDeProcesos){
+	if(numeroDeProceso == cantidadDeProcesos) return cantidadDeProcesos-1;
+	else return numeroDeProceso - 1;
+}
+
+void procesoDeInicio(int numeroDeProceso,int cantidadDeProcesos,int pipes[][2],int pipe_padre_principal[2]){
+	int numeroRecibido = 0;
+	int numeroEnviado = 0;
+	int numeroMalo = generate_random_number();
+	int pipeDeLectura = calcularPipeLectura(numeroDeProceso,cantidadDeProcesos);
+	int pipeDeEscritura = calcularPipeDeEscritura(numeroDeProceso,cantidadDeProcesos);
+
+	closeAllReadPipesDifferentToK(cantidadDeProcesos,pipeDeLectura,pipes);
+	closeAllWritePipesDifferentToK(cantidadDeProcesos,pipeDeEscritura,pipes);
+
+	printf("Hola soy el proceso %d \n",numeroDeProceso);
+
+	read(pipes[pipeDeLectura][READ],&numeroRecibido,sizeof(int));
+
+	printf("El numero malo sera %d \n",numeroMalo);
+
+	while(numeroRecibido < numeroMalo){
+		printf("El proceso %d recibe %d \n",numeroDeProceso,numeroRecibido);
+		numeroEnviado = numeroRecibido +1;
+		printf("El proceso %d envia %d \n",numeroDeProceso,numeroEnviado);
+		write(pipes[pipeDeEscritura][WRITE],&numeroEnviado,sizeof(int));
+		read(pipes[pipeDeLectura][READ],&numeroRecibido,sizeof(int));			
+	} 
+
+	close(pipes[pipeDeEscritura][WRITE]);
+
+  write(pipe_padre_principal[WRITE],&numeroRecibido,sizeof(int));
+		
+  close(pipe_padre_principal[WRITE]);
+
+	exit(0);
+}
+
+void procesoGenerico(int numeroDeProceso,int cantidadDeProcesos,int pipes[][2],int pipe_padre_principal[2]){
+	int numeroRecibido = 0;
+	int numeroEnviado = 0;
+	int pipeDeLectura = calcularPipeLectura(numeroDeProceso,cantidadDeProcesos);
+	int pipeDeEscritura = calcularPipeDeEscritura(numeroDeProceso,cantidadDeProcesos);
+
+	closeAllReadPipesDifferentToK(cantidadDeProcesos,pipeDeLectura,pipes);
+	closeAllWritePipesDifferentToK(cantidadDeProcesos,pipeDeEscritura,pipes);
+
+  close(pipe_padre_principal[READ]);
+  close(pipe_padre_principal[WRITE]);
+
+	printf("Hola soy el proceso %d \n",numeroDeProceso);
+
+	while(read(pipes[pipeDeLectura][READ],&numeroRecibido,sizeof(int))){
+		sleep(1);
+		printf("El proceso %d recibe %d \n",numeroDeProceso,numeroRecibido);
+		numeroEnviado = numeroRecibido +1;
+		printf("El proceso %d envia %d \n",numeroDeProceso,numeroEnviado);
+		write(pipes[pipeDeEscritura][WRITE],&numeroEnviado,sizeof(int));		
+	} 
+
+	close(pipes[pipeDeEscritura][WRITE]);
+
+	exit(0);
+}
+
 int main(int argc, char **argv)
 {	
 	//Funcion para cargar nueva semilla para el numero aleatorio
 	srand(time(NULL));
+
 	int status, pid, n, start, buffer;
 	n = atoi(argv[1]);
 	buffer = atoi(argv[2]);
 	start = atoi(argv[3]);
+	int pipes [n][2];
+  int pipe_padre_principal [2];
+  int mensaje_hijo = 0;
 
 	if (argc != 4){ printf("Uso: anillo <n> <c> <s> \n"); exit(0);}
     
   	/* COMPLETAR */
-    printf("Se crearán %i procesos, se enviará el caracter %i desde proceso %i \n", n, buffer, start-1);
-	int pipes[n][2];
-	
-	//Armo las pipes
-    for(int i=0;i<n;i++){
-		pipe(pipes[i]);
+    printf("Se crearán %i procesos, se enviará el caracter %i desde proceso %i \n", n, buffer, start);
+    
+  for(int i = 0; i <n ; i++){
+		 pipe(pipes[i]);
 	}
-	//Mando el numero inicial al pipe del que va a leer el proceso numero "Start -1"
-	write(pipes[start-1][PIPE_WRITE], &buffer, sizeof(buffer));
-	
-	//El proceso Start es el único que puede avisar al padre que termina y ese debe killear todo (revisar, no llegue a esa parte)
-	for(int i=0; i<n; i++){
-		if(fork()==0){
-			int gameNum;
-			if(i == start-1){
-				int secretNum = 2;//generate_random_number(); <-- comentado por control
-				if (i == n){
-					for(int j=0; j<n;j++){
-						//Cierro todos los write de los pipes 1 a n
-						if(j!=0){
-							close(pipes[j][PIPE_WRITE]);
-						}
-						//Cierro todos los read de los pipes 0 a n-1
-						if (j!= n){
-							close(pipes[j][PIPE_READ]);
-						}
-					}
-					
-					//la primera vez que leo no importa si el num es más grande que el secreto
-					readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[0][PIPE_WRITE],i);
-					
-					while (secretNum>gameNum){
-						readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[0][PIPE_WRITE],i);
-					}
-					printf("game over! \n");
-					
-					exit(0);
-				}else{
-					for(int j=0; j<n;j++){
-						//Cierro todos los write de los pipes menos el i+1
-						if(j!=i+1){
-							close(pipes[j][PIPE_WRITE]);
-						}
-						//Cierro todos los read de los pipes menos el i
-						if (j!= i){
-							close(pipes[j][PIPE_READ]);
-						}
-					}
-					readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[i+1][PIPE_WRITE],i);
-					while (secretNum>gameNum){
-						readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[i+1][PIPE_WRITE],i);
-					}
-					printf("game over \n");
-					exit(0);
-				}
-			}else {
-				if (i==n){
-					for(int j=0; j<n;j++){
-						//Cierro todos los write de los pipes 1 a n
-						if(j!=0){
-							close(pipes[j][PIPE_WRITE]);
-						}
-						//Cierro todos los read de los pipes 0 a n-1
-						if (j!= n){
-							close(pipes[j][PIPE_READ]);
-						}
-					}
-					while (1){
-						readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[i+1][PIPE_WRITE],i);
-					}
-					exit(0);
-				}else{
-					for(int j=0; j<n;j++){
-						//Cierro todos los write de los pipes menos el i+1
-						if(j!=i+1){
-							close(pipes[j][PIPE_WRITE]);
-						}
-						//Cierro todos los read de los pipes menos el i
-						if (j!= i){
-							close(pipes[j][PIPE_READ]);
-						}
-					}
-					while (1){
-						readNumberAndWrite(gameNum, pipes[i][PIPE_READ],pipes[i+1][PIPE_WRITE],i);
-					}
-					exit(0);
-				}
-			}
+
+  pipe(pipe_padre_principal);
+  
+	for(int i = 1; i<=n ;i++){
+		if(i == start){
+			if(fork()==0){
+				procesoDeInicio(i,n,pipes,pipe_padre_principal);
+			} 
+		} else if(fork()==0) {
+			procesoGenerico(i,n,pipes,pipe_padre_principal);
 		}
 	}
-	for (int i=0;i<n;i++){
-		close(pipes[i][PIPE_READ]);
-		close(pipes[i][PIPE_WRITE]);
-	}
+
+	write(pipes[calcularPipeLectura(start,n)][WRITE],&buffer,sizeof(int));
+
+  close(pipe_padre_principal[WRITE]);
 	
-	for (int i = 0; i < n; i++) {
-        wait(NULL);
-    }
+  for(int i = 0; i < n; i++){
+		close(pipes[i][READ]);
+		close(pipes[i][WRITE]);
+	}
+
+  read(pipe_padre_principal[READ],&mensaje_hijo,sizeof(mensaje_hijo));
+
+  printf("El hijo recibio %d para morir \n",mensaje_hijo);
+
+	for(int i=0; i<n; i++){
+		wait(NULL);
+	}
 	
 	return 0;
 }
