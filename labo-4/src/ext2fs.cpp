@@ -280,17 +280,71 @@ struct Ext2FSInode * Ext2FS::load_inode(unsigned int inode_number)
 {
 	//TODO: Ejercicio 2
 	int block_size = 1024 << _superblock->log_block_size;
-	return NULL;
+	int block_group_number = blockgroup_for_inode(inode_number);
+	Ext2FSBlockGroupDescriptor *block_group_descriptor = block_group(block_group_number);
+	int inode_index = blockgroup_inode_index(inode_number);
+	
+	int cant_inodos=(block_size/_superblock->inode_size);
+	int first_index = inode_index/cant_inodos;
+	int second_index = inode_index % cant_inodos;
 
+	unsigned char *buffer = (unsigned char *) malloc(block_size);
+	read_block(block_group_descriptor->inode_table + first_index, buffer);
+	
+	Ext2FSInode * inodes= (Ext2FSInode *) buffer;	
+	Ext2FSInode * inode = &inodes[second_index];
+
+	Ext2FSInode * inode_res = (Ext2FSInode *) malloc(sizeof(Ext2FSInode));
+	*inode_res = *inode;
+	
+	
+	free(buffer);
+
+	return inode_res;
 }
 
 unsigned int Ext2FS::get_block_address(struct Ext2FSInode * inode, unsigned int block_number)
 {
-
-	int block_size = 1024 << _superblock->log_block_size;
-	return -1;
 	//TODO: Ejercicio 1
+	int block_size = 1024 << _superblock->log_block_size;
+	int primer_limite_direcciones = 12;
+	int cant_direcciones_bloque = block_size / 4;
+	int segundo_limite_direcciones = cant_direcciones_bloque + 12;
 
+	if(block_number < primer_limite_direcciones){
+		return inode->block[block_number];
+	}
+	
+	if(block_number < segundo_limite_direcciones){
+		unsigned char *buffer = (unsigned char *) malloc(block_size);
+		
+		read_block(inode->block[primer_limite_direcciones],buffer);
+		unsigned int * block = (unsigned int *) buffer;
+		int lba = block[block_number - primer_limite_direcciones];
+
+		free(buffer);
+		
+		return lba;
+	}
+
+	int indice_primera_indireccion = (block_number - segundo_limite_direcciones) / cant_direcciones_bloque;
+	int indice_segunda_indireccion = (block_number - segundo_limite_direcciones) % cant_direcciones_bloque;
+	
+	unsigned char *buffer = (unsigned char *) malloc(block_size);
+	
+	read_block(inode->block[primer_limite_direcciones + 1],buffer);
+	
+	unsigned int * block = (unsigned int *) buffer;
+
+	read_block(block[indice_primera_indireccion],buffer);
+	
+	block = (unsigned int *) buffer;
+
+	int lba = block[indice_segunda_indireccion];
+
+	free(buffer);
+
+	return lba;
 }
 
 void Ext2FS::read_block(unsigned int block_address, unsigned char * buffer)
@@ -309,7 +363,39 @@ struct Ext2FSInode * Ext2FS::get_file_inode_from_dir_inode(struct Ext2FSInode * 
 	assert(INODE_ISDIR(from));
 
 	//TODO: Ejercicio 3
+	unsigned int block_size = 1024 << _superblock->log_block_size;
+	// int cant_blocks = 12 + 256 + 256*256;
+	int cant_blocks = from->size / block_size;
+	int block_lba = 0;
+	
+	unsigned char *buffer = (unsigned char *) malloc(block_size * cant_blocks);
+	unsigned char *blockBuffer = (unsigned char *) malloc(block_size);
 
+	for(int i = 0; i < cant_blocks; i++){
+		block_lba = get_block_address(from,i);
+		read_block(block_lba, blockBuffer);
+		memcpy(buffer + i * block_size, blockBuffer, block_size);
+	}
+
+	int index = 0;
+	int entry_length = 0;
+	while(index < from->size){
+		Ext2FSDirEntry *entry = (Ext2FSDirEntry *)(buffer + index);
+		if (entry->name_length == strlen(filename) && strncmp(entry->name, filename,entry->name_length) == 0){
+			Ext2FSInode *inode = load_inode(entry->inode);
+
+			free(buffer);
+			free(blockBuffer);
+			
+			return inode;
+		}
+		index = index + entry->record_length;
+	}
+
+	free(buffer);
+	free(blockBuffer);	
+
+	return NULL;
 }
 
 fd_t Ext2FS::get_free_fd()
