@@ -364,7 +364,11 @@ struct Ext2FSInode * Ext2FS::get_file_inode_from_dir_inode(struct Ext2FSInode * 
 
 	//TODO: Ejercicio 3
 	unsigned int block_size = 1024 << _superblock->log_block_size;
+	
+	// En un principio pense en recorrer todos los bloques
+	// Por eso deje esta cuenta comentada
 	// int cant_blocks = 12 + 256 + 256*256;
+	
 	int cant_blocks = from->size / block_size;
 	int block_lba = 0;
 	
